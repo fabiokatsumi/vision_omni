@@ -2,13 +2,18 @@
 set -Eeuo pipefail
 
 : "${BOOT_MODE:="windows"}"
+: "${PLATFORM:="x64"}"
+: "${VM_NET_HOST:="OmniParser"}"
 
 APP="OmniParser Windows"
 SUPPORT="https://github.com/microsoft/OmniParser"
 
 cd /run
 
+. start.sh      # Startup hook
+. utils.sh      # Load helper functions
 . reset.sh      # Initialize system
+. server.sh     # Start webserver
 . define.sh     # Define versions
 . install.sh    # Run installation
 . disk.sh       # Initialize disks
@@ -17,8 +22,10 @@ cd /run
 . samba.sh      # Configure samba
 . boot.sh       # Configure boot
 . proc.sh       # Initialize processor
+. memory.sh     # Check available memory
 . power.sh      # Configure shutdown
 . config.sh     # Configure arguments
+. finish.sh     # Finish initialization
 
 trap - ERR
 

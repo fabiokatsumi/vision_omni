@@ -177,13 +177,12 @@ def chatbot_output_callback(message, chatbot_state, hide_images=False, sender="b
     message = _render_message(message, hide_images)
     
     if sender == "bot":
-        chatbot_state.append((None, message))
+        chatbot_state.append({"role": "assistant", "content": message})
     else:
-        chatbot_state.append((message, None))
-    
+        chatbot_state.append({"role": "user", "content": message})
+
     # Create a concise version of the chatbot state for printing
-    concise_state = [(_truncate_string(user_msg), _truncate_string(bot_msg))
-                        for user_msg, bot_msg in chatbot_state]
+    concise_state = [(_truncate_string(msg.get("content", ""))) for msg in chatbot_state]
     # print(f"chatbot_output_callback chatbot_state: {concise_state} (truncated)")
 
 def valid_params(user_input, state):
@@ -224,8 +223,8 @@ def process_input(user_input, state):
         }
     )
 
-    # Append the user's message to chatbot_messages with None for the assistant's reply
-    state['chatbot_messages'].append((user_input, None))
+    # Append the user's message to chatbot_messages
+    state['chatbot_messages'].append({"role": "user", "content": user_input})
     yield state['chatbot_messages']  # Yield to update the chatbot UI with the user's message
 
     print("state")

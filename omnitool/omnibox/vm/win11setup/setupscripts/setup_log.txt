@@ -1,0 +1,23 @@
+
+
+    Directory: C:\Users\Docker\Documents\WindowsPowerShell
+
+
+Mode                 LastWriteTime         Length Name                                                                 
+----                 -------------         ------ ----                                                                 
+-a----         3/11/2026   8:02 PM              0 Microsoft.PowerShell_profile.ps1                                     
+
+
+    Directory: C:\Users\Docker
+
+
+Mode                 LastWriteTime         Length Name                                                                 
+----                 -------------         ------ ----                                                                 
+d-----         3/11/2026   8:02 PM                Tools                                                                
+Downloading Python ...
+Download successful, file saved to: C:\Users\Docker\AppData\Local\Temp\python_installer.exe
+Downloaded using https://www.python.org/ftp/python/3.10.0/python-3.10.0-amd64.exe
+Installing Python for current user...
+Git is not installed. Downloading and installing Git...
+Download successful, file saved to: C:\Users\Docker\AppData\Local\Temp\git_installer.exe
+Downloaded using https://github.com/git-for-windows/git/releases/download/v2.37.1.windows.1/Git-2.37.1-64-bit.exe

@@ -7,7 +7,7 @@ set -Eeuo pipefail
 [[ "$NETWORK" == [Nn]* ]] && return 0
 
 hostname="host.lan"
-interface="dockerbridge"
+interface="$VM_NET_BRIDGE"
 
 if [[ "$DHCP" == [Yy1]* ]]; then
   hostname="$IP"

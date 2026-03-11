@@ -14,6 +14,9 @@ class Omniparser(object):
         print('Omniparser initialized!!!')
 
     def parse(self, image_base64: str):
+        # Strip data URI prefix if present
+        if ',' in image_base64[:100]:
+            image_base64 = image_base64.split(',', 1)[1]
         image_bytes = base64.b64decode(image_base64)
         image = Image.open(io.BytesIO(image_bytes))
         print('image size:', image.size)

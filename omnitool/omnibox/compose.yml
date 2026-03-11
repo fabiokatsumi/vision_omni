@@ -7,6 +7,7 @@ services:
       RAM_SIZE: "8G"
       CPU_CORES: "4"
       DISK_SIZE: "20G"
+      USER_PORTS: "5000"
     devices:
       - /dev/kvm
       - /dev/net/tun
@@ -14,6 +15,7 @@ services:
       - NET_ADMIN
     ports:
       - 8006:8006                 # Web Viewer access
+      - 5000:5000                 # Windows VM Flask API
     volumes:
       - ./vm/win11iso/custom.iso:/custom.iso
       - ./vm/win11setup/firstboot:/oem
