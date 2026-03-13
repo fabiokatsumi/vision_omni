@@ -73,7 +73,9 @@ try:
     buf = io.BytesIO()
     test_img.save(buf, format='PNG')
     test_b64 = base64.b64encode(buf.getvalue()).decode('ascii')
-    som_img, parsed_list = omniparser.parse(test_b64)
+    result = omniparser.parse(test_b64)
+    assert result is not None, "Expected a result tuple"
+    som_img, parsed_list = result
     assert isinstance(som_img, str), "Expected base64 string"
     assert isinstance(parsed_list, list), "Expected list"
     print(f"Self-test passed! (detected {len(parsed_list)} elements)")
