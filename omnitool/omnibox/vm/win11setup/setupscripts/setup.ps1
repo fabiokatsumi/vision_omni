@@ -351,7 +351,7 @@ if (Test-Path $thunderbirdExecutablePath) {
 
 # - Server Setup 
 
-$pythonServerPort = 5000
+$pythonServerPort = 5006
 $onLogonTaskName = "Server_OnLogon"
 $requirementsFile = "$scriptFolder\server\requirements.txt"
 

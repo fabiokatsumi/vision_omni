@@ -9,8 +9,8 @@ from anthropic.types.beta import BetaToolComputerUse20241022Param
 
 from .base import BaseAnthropicTool, ToolError, ToolResult
 from .screen_capture import get_screenshot
+from . import config as tools_config
 import requests
-import re
 
 OUTPUT_DIR = "./tmp/outputs"
 
@@ -124,7 +124,7 @@ class ComputerTool(BaseAnthropicTool):
             # if not all(isinstance(i, int) and i >= 0 for i in coordinate):
             if not all(isinstance(i, int) for i in coordinate):
                 raise ToolError(f"{coordinate} must be a tuple of non-negative ints")
-            
+
             if self.is_scaling:
                 x, y = self.scale_coordinates(
                     ScalingSource.API, coordinate[0], coordinate[1]
@@ -132,20 +132,15 @@ class ComputerTool(BaseAnthropicTool):
             else:
                 x, y = coordinate
 
-            # print(f"scaled_coordinates: {x}, {y}")
-            # print(f"offset: {self.offset_x}, {self.offset_y}")
-            
-            # x += self.offset_x # TODO - check if this is needed
-            # y += self.offset_y
-
             print(f"mouse move to {x}, {y}")
-            
+
             if action == "mouse_move":
-                self.send_to_vm(f"pyautogui.moveTo({x}, {y})")
+                self.call_action("moveTo", args=[x, y])
                 return ToolResult(output=f"Moved mouse to ({x}, {y})")
             elif action == "left_click_drag":
-                current_x, current_y = self.send_to_vm("pyautogui.position()")
-                self.send_to_vm(f"pyautogui.dragTo({x}, {y}, duration=0.5)")
+                pos = self.get_mouse_position()
+                current_x, current_y = pos["x"], pos["y"]
+                self.call_action("dragTo", args=[x, y], kwargs={"duration": 0.5})
                 return ToolResult(output=f"Dragged mouse from ({current_x}, {current_y}) to ({x}, {y})")
 
         if action in ("key", "type"):
@@ -162,18 +157,18 @@ class ComputerTool(BaseAnthropicTool):
                 for key in keys:
                     key = self.key_conversion.get(key.strip(), key.strip())
                     key = key.lower()
-                    self.send_to_vm(f"pyautogui.keyDown('{key}')")  # Press down each key
+                    self.call_action("keyDown", args=[key])
                 for key in reversed(keys):
                     key = self.key_conversion.get(key.strip(), key.strip())
                     key = key.lower()
-                    self.send_to_vm(f"pyautogui.keyUp('{key}')")    # Release each key in reverse order
+                    self.call_action("keyUp", args=[key])
                 return ToolResult(output=f"Pressed keys: {text}")
-            
+
             elif action == "type":
                 # default click before type TODO: check if this is needed
-                self.send_to_vm("pyautogui.click()")
-                self.send_to_vm(f"pyautogui.typewrite('{text}', interval={TYPING_DELAY_MS / 1000})")
-                self.send_to_vm("pyautogui.press('enter')")
+                self.call_action("click")
+                self.call_action("typewrite", args=[text], kwargs={"interval": TYPING_DELAY_MS / 1000})
+                self.call_action("press", args=["enter"])
                 screenshot_base64 = (await self.screenshot()).base64_image
                 return ToolResult(output=text, base64_image=screenshot_base64)
 
@@ -194,28 +189,28 @@ class ComputerTool(BaseAnthropicTool):
             if action == "screenshot":
                 return await self.screenshot()
             elif action == "cursor_position":
-                x, y = self.send_to_vm("pyautogui.position()")
-                x, y = self.scale_coordinates(ScalingSource.COMPUTER, x, y)
+                pos = self.get_mouse_position()
+                x, y = self.scale_coordinates(ScalingSource.COMPUTER, pos["x"], pos["y"])
                 return ToolResult(output=f"X={x},Y={y}")
             else:
                 if action == "left_click":
-                    self.send_to_vm("pyautogui.click()")
+                    self.call_action("click")
                 elif action == "right_click":
-                    self.send_to_vm("pyautogui.rightClick()")
+                    self.call_action("rightClick")
                 elif action == "middle_click":
-                    self.send_to_vm("pyautogui.middleClick()")
+                    self.call_action("middleClick")
                 elif action == "double_click":
-                    self.send_to_vm("pyautogui.doubleClick()")
+                    self.call_action("doubleClick")
                 elif action == "left_press":
-                    self.send_to_vm("pyautogui.mouseDown()")
+                    self.call_action("mouseDown")
                     time.sleep(1)
-                    self.send_to_vm("pyautogui.mouseUp()")
+                    self.call_action("mouseUp")
                 return ToolResult(output=f"Performed {action}")
         if action in ("scroll_up", "scroll_down"):
             if action == "scroll_up":
-                self.send_to_vm("pyautogui.scroll(100)")
+                self.call_action("scroll", args=[100])
             elif action == "scroll_down":
-                self.send_to_vm("pyautogui.scroll(-100)")
+                self.call_action("scroll", args=[-100])
             return ToolResult(output=f"Performed {action}")
         if action == "hover":
             return ToolResult(output=f"Performed {action}")
@@ -224,37 +219,42 @@ class ComputerTool(BaseAnthropicTool):
             return ToolResult(output=f"Performed {action}")
         raise ToolError(f"Invalid action: {action}")
 
-    def send_to_vm(self, action: str):
-        """
-        Executes a python command on the server. Only return tuple of x,y when action is "pyautogui.position()"
-        """
-        prefix = "import pyautogui; pyautogui.FAILSAFE = False;"
-        command_list = ["python", "-c", f"{prefix} {action}"]
-        parse = action == "pyautogui.position()"
-        if parse:
-            command_list[-1] = f"{prefix} print({action})"
+    def _base_url(self):
+        return f"http://{tools_config.FLASK_SERVER_URL}"
+
+    def call_action(self, action_name: str, args: list | None = None, kwargs: dict | None = None):
+        """Call a pyautogui action on the Flask server via the /action endpoint."""
+        payload = {"action": action_name}
+        if args:
+            payload["args"] = args
+        if kwargs:
+            payload["kwargs"] = kwargs
 
         try:
-            print(f"sending to vm: {command_list}")
+            print(f"calling action: {action_name} args={args} kwargs={kwargs}")
             response = requests.post(
-                f"http://localhost:5000/execute", 
+                f"{self._base_url()}/action",
                 headers={'Content-Type': 'application/json'},
-                json={"command": command_list},
+                json=payload,
                 timeout=90
             )
-            time.sleep(0.7) # avoid async error as actions take time to complete
+            time.sleep(0.7)  # avoid async error as actions take time to complete
             print(f"action executed")
             if response.status_code != 200:
-                raise ToolError(f"Failed to execute command. Status code: {response.status_code}")
-            if parse:
-                output = response.json()['output'].strip()
-                match = re.search(r'Point\(x=(\d+),\s*y=(\d+)\)', output)
-                if not match:
-                    raise ToolError(f"Could not parse coordinates from output: {output}")
-                x, y = map(int, match.groups())
-                return x, y
+                raise ToolError(f"Failed to execute action {action_name}. Status code: {response.status_code}")
+            return response.json()
         except requests.exceptions.RequestException as e:
-            raise ToolError(f"An error occurred while trying to execute the command: {str(e)}")
+            raise ToolError(f"An error occurred while trying to execute action {action_name}: {str(e)}")
+
+    def get_mouse_position(self) -> dict:
+        """Get the current mouse position from the Flask server."""
+        try:
+            response = requests.get(f"{self._base_url()}/mouse_position", timeout=90)
+            if response.status_code != 200:
+                raise ToolError(f"Failed to get mouse position. Status code: {response.status_code}")
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            raise ToolError(f"An error occurred while trying to get mouse position: {str(e)}")
 
     async def screenshot(self):
         if not hasattr(self, 'target_dimension'):
@@ -288,7 +288,6 @@ class ComputerTool(BaseAnthropicTool):
                 if dimension["width"] < self.width:
                     target_dimension = dimension
                     self.target_dimension = target_dimension
-                    # print(f"target_dimension: {target_dimension}")
                 break
 
         if target_dimension is None:
@@ -308,22 +307,16 @@ class ComputerTool(BaseAnthropicTool):
         return round(x * x_scaling_factor), round(y * y_scaling_factor)
 
     def get_screen_size(self):
-        """Return width and height of the screen"""
+        """Return width and height of the screen from the Flask server."""
         try:
-            response = requests.post(
-                f"http://localhost:5000/execute",
-                headers={'Content-Type': 'application/json'},
-                json={"command": ["python", "-c", "import pyautogui; print(pyautogui.size())"]},
+            response = requests.get(
+                f"{self._base_url()}/screen_size",
                 timeout=90
             )
             if response.status_code != 200:
                 raise ToolError(f"Failed to get screen size. Status code: {response.status_code}")
-            
-            output = response.json()['output'].strip()
-            match = re.search(r'Size\(width=(\d+),\s*height=(\d+)\)', output)
-            if not match:
-                raise ToolError(f"Could not parse screen size from output: {output}")
-            width, height = map(int, match.groups())
-            return width, height
+
+            data = response.json()
+            return data["width"], data["height"]
         except requests.exceptions.RequestException as e:
             raise ToolError(f"An error occurred while trying to get screen size: {str(e)}")

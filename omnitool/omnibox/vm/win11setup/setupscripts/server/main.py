@@ -10,6 +10,8 @@ import pyautogui
 from PIL import Image
 from io import BytesIO
 
+pyautogui.FAILSAFE = False
+
 
 def execute_anything(data):
     """Execute any command received in the JSON request.
@@ -41,7 +43,7 @@ def execute_anything(data):
             'status': 'error',
             'message': str(e)
         }), 500
-    
+
 
 def execute(data):
     """Action space aware implementation. Should not use arbitrary code execution."""
@@ -57,7 +59,7 @@ execute_impl = execute_anything   # switch to execute_anything to allow any comm
 parser = argparse.ArgumentParser()
 parser.add_argument("--log_file", help="log file path", type=str,
                     default=os.path.join(os.path.dirname(__file__), "server.log"))
-parser.add_argument("--port", help="port", type=int, default=5000)
+parser.add_argument("--port", help="port", type=int, default=5006)
 args = parser.parse_args()
 
 logging.basicConfig(filename=args.log_file,level=logging.DEBUG, filemode='w' )
@@ -79,7 +81,7 @@ def execute_command():
         return execute_impl(data)
 
 @app.route('/screenshot', methods=['GET'])
-def capture_screen_with_cursor():    
+def capture_screen_with_cursor():
     cursor_path = os.path.join(os.path.dirname(__file__), "cursor.png")
     screenshot = pyautogui.screenshot()
     cursor_x, cursor_y = pyautogui.position()
@@ -93,6 +95,51 @@ def capture_screen_with_cursor():
     screenshot.save(img_io, 'PNG')
     img_io.seek(0)
     return send_file(img_io, mimetype='image/png')
+
+@app.route('/screen_size', methods=['GET'])
+def screen_size():
+    """Return the screen dimensions."""
+    with computer_control_lock:
+        size = pyautogui.size()
+        return jsonify({"width": size.width, "height": size.height})
+
+@app.route('/mouse_position', methods=['GET'])
+def mouse_position():
+    """Return the current mouse cursor position."""
+    with computer_control_lock:
+        pos = pyautogui.position()
+        return jsonify({"x": pos.x, "y": pos.y})
+
+@app.route('/action', methods=['POST'])
+def perform_action():
+    """Execute a pyautogui action directly.
+
+    Expected JSON body:
+    {
+        "action": "moveTo" | "click" | "rightClick" | "middleClick" | "doubleClick" |
+                  "dragTo" | "keyDown" | "keyUp" | "typewrite" | "press" | "scroll" |
+                  "mouseDown" | "mouseUp",
+        "args": [...],      # positional arguments
+        "kwargs": {...}     # keyword arguments
+    }
+    """
+    with computer_control_lock:
+        try:
+            data = request.json
+            action_name = data.get('action')
+            action_args = data.get('args', [])
+            action_kwargs = data.get('kwargs', {})
+
+            func = getattr(pyautogui, action_name, None)
+            if func is None:
+                return jsonify({"status": "error", "message": f"Unknown action: {action_name}"}), 400
+
+            result = func(*action_args, **action_kwargs)
+
+            return jsonify({"status": "success", "result": str(result) if result is not None else None})
+        except Exception as e:
+            logger.error("\n" + traceback.format_exc() + "\n")
+            return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port=args.port)

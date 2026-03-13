@@ -1,5 +1,5 @@
 """
-python app.py --windows_host_url localhost:8006 --omniparser_server_url localhost:8000
+python app.py --flask_server_url 100.71.147.116:5010 --omniparser_server_url localhost:8000
 """
 
 import os
@@ -19,6 +19,7 @@ from loop import (
     sampling_loop_sync,
 )
 from tools import ToolResult
+from tools import config as tools_config
 import requests
 from requests.exceptions import RequestException
 import base64
@@ -35,10 +36,16 @@ Type a message and press submit to start OmniTool. Press stop to pause, and pres
 def parse_arguments():
 
     parser = argparse.ArgumentParser(description="Gradio App")
-    parser.add_argument("--windows_host_url", type=str, default='localhost:8006')
+    parser.add_argument("--windows_host_url", type=str, default=None,
+                        help="URL for NoVNC viewer (host:port). If not set, VNC iframe is hidden.")
     parser.add_argument("--omniparser_server_url", type=str, default="localhost:8000")
+    parser.add_argument("--flask_server_url", type=str, default="localhost:5000",
+                        help="URL of the Flask server running in the VM (host:port)")
     return parser.parse_args()
 args = parse_arguments()
+
+# Propagate Flask server URL to tools
+tools_config.FLASK_SERVER_URL = args.flask_server_url
 
 
 class Sender(StrEnum):
@@ -189,7 +196,7 @@ def valid_params(user_input, state):
     """Validate all requirements and return a list of error messages."""
     errors = []
     
-    for server_name, url in [('Windows Host', 'localhost:5000'), ('OmniParser Server', args.omniparser_server_url)]:
+    for server_name, url in [('Windows Host', args.flask_server_url), ('OmniParser Server', args.omniparser_server_url)]:
         try:
             url = f'http://{url}/probe'
             response = requests.get(url, timeout=3)
@@ -342,12 +349,13 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
     with gr.Row():
         with gr.Column(scale=2):
             chatbot = gr.Chatbot(label="Chatbot History", autoscroll=True, height=580)
-        with gr.Column(scale=3):
-            iframe = gr.HTML(
-                f'<iframe src="http://{args.windows_host_url}/vnc.html?view_only=1&autoconnect=1&resize=scale" width="100%" height="580" allow="fullscreen"></iframe>',
-                container=False,
-                elem_classes="no-padding"
-            )
+        if args.windows_host_url:
+            with gr.Column(scale=3):
+                iframe = gr.HTML(
+                    f'<iframe src="http://{args.windows_host_url}/vnc.html?view_only=1&autoconnect=1&resize=scale" width="100%" height="580" allow="fullscreen"></iframe>',
+                    container=False,
+                    elem_classes="no-padding"
+                )
 
     def update_model(model_selection, state):
         state["model"] = model_selection

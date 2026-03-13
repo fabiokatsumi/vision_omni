@@ -10,7 +10,7 @@ function Create-VM {
 
     while ($true) {
         try {
-            $response = Invoke-WebRequest -Uri "http://localhost:5000/probe" -Method GET -UseBasicParsing
+            $response = Invoke-WebRequest -Uri "http://localhost:5006/probe" -Method GET -UseBasicParsing
             if ($response.StatusCode -eq 200) {
                 break
             }
@@ -28,7 +28,7 @@ function Start-LocalVM {
     docker compose -f ../compose.yml start
     while ($true) {
         try {
-            $response = Invoke-WebRequest -Uri "http://localhost:5000/probe" -Method GET -UseBasicParsing
+            $response = Invoke-WebRequest -Uri "http://localhost:5006/probe" -Method GET -UseBasicParsing
             if ($response.StatusCode -eq 200) {
                 break
             }
