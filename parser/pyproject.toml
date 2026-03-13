@@ -24,3 +24,6 @@ dependencies = [
     "huggingface-hub",
     "pyngrok",
 ]
+
+[tool.uv]
+link-mode = "copy"

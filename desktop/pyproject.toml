@@ -9,3 +9,6 @@ dependencies = [
     "pillow",
     "pyngrok",
 ]
+
+[tool.uv]
+link-mode = "copy"

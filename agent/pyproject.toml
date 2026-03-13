@@ -12,3 +12,6 @@ dependencies = [
     "pillow>=12.1.1",
     "pyngrok",
 ]
+
+[tool.uv]
+link-mode = "copy"
