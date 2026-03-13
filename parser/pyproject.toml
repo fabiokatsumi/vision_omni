@@ -1,0 +1,26 @@
+[project]
+name = "omnitool-parser"
+version = "0.1.0"
+description = "OmniParser server - processes screenshots with YOLO + OCR + Florence-2"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.34.0",
+    "pydantic",
+    "torch",
+    "torchvision",
+    "numpy==1.26.4",
+    "opencv-python",
+    "easyocr",
+    "paddlepaddle",
+    "paddleocr>=2.7,<3",
+    "supervision==0.18.0",
+    "ultralytics==8.3.70",
+    "transformers>=4.38,<4.46",
+    "accelerate",
+    "timm",
+    "einops==0.8.0",
+    "pillow>=12.1.1",
+    "huggingface-hub",
+    "pyngrok",
+]
