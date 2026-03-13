@@ -357,8 +357,17 @@ def get_som_labeled_img(image_source: Union[str, Image.Image], model=None, BOX_T
 
     filtered_boxes_elem = sorted(filtered_boxes, key=lambda x: x['content'] is None)
     starting_idx = next((i for i, box in enumerate(filtered_boxes_elem) if box['content'] is None), -1)
+    print('len(filtered_boxes):', len(filtered_boxes_elem), starting_idx)
+
+    # Handle empty detections: return the original image as base64 with no labels
+    if len(filtered_boxes_elem) == 0:
+        pil_img = Image.fromarray(image_source)
+        buffered = io.BytesIO()
+        pil_img.save(buffered, format="PNG")
+        encoded_image = base64.b64encode(buffered.getvalue()).decode('ascii')
+        return encoded_image, {}, []
+
     filtered_boxes = torch.tensor([box['bbox'] for box in filtered_boxes_elem])
-    print('len(filtered_boxes):', len(filtered_boxes), starting_idx)
 
     time1 = time.time()
     if use_local_semantics:
