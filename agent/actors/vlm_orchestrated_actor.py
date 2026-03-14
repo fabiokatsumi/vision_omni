@@ -180,19 +180,23 @@ class VLMOrchestratedAgent:
             )
             response_content.append(move_cursor_block)
 
-        if vlm_response_json["Next Action"] == "None":
+        # Extract just the action type (model may return "left_click, description")
+        raw_action = vlm_response_json["Next Action"]
+        action_type = raw_action.split(",")[0].strip()
+
+        if action_type == "None":
             print("Task paused/completed.")
-        elif vlm_response_json["Next Action"] == "type":
+        elif action_type == "type":
             sim_content_block = BetaToolUseBlock(
                 id=f'toolu_{uuid.uuid4()}',
-                input={'action': vlm_response_json["Next Action"], 'text': vlm_response_json["value"]},
+                input={'action': action_type, 'text': vlm_response_json["value"]},
                 name='computer', type='tool_use',
             )
             response_content.append(sim_content_block)
         else:
             sim_content_block = BetaToolUseBlock(
                 id=f'toolu_{uuid.uuid4()}',
-                input={'action': vlm_response_json["Next Action"]},
+                input={'action': action_type},
                 name='computer', type='tool_use',
             )
             response_content.append(sim_content_block)
