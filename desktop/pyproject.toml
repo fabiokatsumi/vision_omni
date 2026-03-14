@@ -1,0 +1,14 @@
+[project]
+name = "omnitool-desktop"
+version = "0.1.0"
+description = "Desktop control server - runs on the PC being controlled"
+requires-python = ">=3.10"
+dependencies = [
+    "flask",
+    "pyautogui",
+    "pillow",
+    "pyngrok",
+]
+
+[tool.uv]
+link-mode = "copy"

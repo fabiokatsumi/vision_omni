@@ -1,80 +1,107 @@
-# OmniParser: Screen Parsing tool for Pure Vision Based GUI Agent
+# OmniTool
 
-<p align="center">
-  <img src="imgs/logo.png" alt="Logo">
-</p>
-<!-- <a href="https://trendshift.io/repositories/12975" target="_blank"><img src="https://trendshift.io/api/badge/repositories/12975" alt="microsoft%2FOmniParser | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a> -->
+AI agent that controls any desktop via screen parsing and vision-language models.
 
-[![arXiv](https://img.shields.io/badge/Paper-green)](https://arxiv.org/abs/2408.00203)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+Based on [OmniParser](https://arxiv.org/abs/2408.00203) by Microsoft Research.
 
-📢 [[Project Page](https://microsoft.github.io/OmniParser/)] [[V2 Blog Post](https://www.microsoft.com/en-us/research/articles/omniparser-v2-turning-any-llm-into-a-computer-use-agent/)] [[Models V2](https://huggingface.co/microsoft/OmniParser-v2.0)] [[Models V1.5](https://huggingface.co/microsoft/OmniParser)] [[HuggingFace Space Demo](https://huggingface.co/spaces/microsoft/OmniParser-v2)]
+## Architecture
 
-**OmniParser** is a comprehensive method for parsing user interface screenshots into structured and easy-to-understand elements, which significantly enhances the ability of GPT-4V to generate actions that can be accurately grounded in the corresponding regions of the interface. 
-
-## News
-- [2025/3] We support local logging of trajecotry so that you can use OmniParser+OmniTool to build training data pipeline for your favorate agent in your domain. [Documentation WIP]
-- [2025/3] We are gradually adding multi agents orchstration and improving user interface in OmniTool for better experience.
-- [2025/2] We release OmniParser V2 [checkpoints](https://huggingface.co/microsoft/OmniParser-v2.0). [Watch Video](https://1drv.ms/v/c/650b027c18d5a573/EWXbVESKWo9Buu6OYCwg06wBeoM97C6EOTG6RjvWLEN1Qg?e=alnHGC)
-- [2025/2] We introduce OmniTool: Control a Windows 11 VM with OmniParser + your vision model of choice. OmniTool supports out of the box the following large language models - OpenAI (4o/o1/o3-mini), DeepSeek (R1), Qwen (2.5VL) or Anthropic Computer Use. [Watch Video](https://1drv.ms/v/c/650b027c18d5a573/EehZ7RzY69ZHn-MeQHrnnR4BCj3by-cLLpUVlxMjF4O65Q?e=8LxMgX)
-- [2025/1] V2 is coming. We achieve new state of the art results 39.5% on the new grounding benchmark [Screen Spot Pro](https://github.com/likaixin2000/ScreenSpot-Pro-GUI-Grounding/tree/main) with OmniParser v2 (will be released soon)! Read more details [here](https://github.com/microsoft/OmniParser/tree/master/docs/Evaluation.md).
-- [2024/11] We release an updated version, OmniParser V1.5 which features 1) more fine grained/small icon detection, 2) prediction of whether each screen element is interactable or not. Examples in the demo.ipynb. 
-- [2024/10] OmniParser was the #1 trending model on huggingface model hub (starting 10/29/2024). 
-- [2024/10] Feel free to checkout our demo on [huggingface space](https://huggingface.co/spaces/microsoft/OmniParser)! (stay tuned for OmniParser + Claude Computer Use)
-- [2024/10] Both Interactive Region Detection Model and Icon functional description model are released! [Hugginface models](https://huggingface.co/microsoft/OmniParser)
-- [2024/09] OmniParser achieves the best performance on [Windows Agent Arena](https://microsoft.github.io/WindowsAgentArena/)! 
-
-## Install 
-First clone the repo, and then install environment:
-```python
-cd OmniParser
-conda create -n "omni" python==3.12
-conda activate omni
-pip install -r requirements.txt
+```
+┌─────────┐     screenshots    ┌─────────┐     parsed screen    ┌─────────┐
+│ Desktop │ ──────────────────▶│ Parser  │ ────────────────────▶│  Agent  │
+│ server  │ ◀──────────────── │ server  │                      │  (UI)   │
+│         │   mouse/keyboard   │ (GPU)   │                      │         │
+└─────────┘                    └─────────┘                      └─────────┘
+ Any PC(s)                    GPU machine                    Orchestrator PC
 ```
 
-Ensure you have the V2 weights downloaded in weights folder (ensure caption weights folder is called icon_caption_florence). If not download them with:
-```
-   # download the model checkpoints to local directory OmniParser/weights/
-   for f in icon_detect/{train_args.yaml,model.pt,model.yaml} icon_caption/{config.json,generation_config.json,model.safetensors}; do huggingface-cli download microsoft/OmniParser-v2.0 "$f" --local-dir weights; done
-   mv weights/icon_caption weights/icon_caption_florence
-```
+- **`desktop/`** - Runs on each PC you want to control. Captures screenshots, executes mouse/keyboard actions.
+- **`parser/`** - Runs on a GPU machine. Processes screenshots with YOLO + OCR + Florence-2.
+- **`agent/`** - Runs anywhere. Gradio UI + AI agent loop. Connects to desktop + parser servers.
 
-<!-- ## [deprecated]
-Then download the model ckpts files in: https://huggingface.co/microsoft/OmniParser, and put them under weights/, default folder structure is: weights/icon_detect, weights/icon_caption_florence, weights/icon_caption_blip2. 
+One parser + one agent can control **many desktops**.
 
-For v1: 
-convert the safetensor to .pt file. 
-```python
-python weights/convert_safetensor_to_pt.py
+## Quick Start
 
-For v1.5: 
-download 'model_v1_5.pt' from https://huggingface.co/microsoft/OmniParser/tree/main/icon_detect_v1_5, make a new dir: weights/icon_detect_v1_5, and put it inside the folder. No weight conversion is needed. 
-``` -->
+### 1. Desktop server (on each PC to control)
 
-## Examples:
-We put together a few simple examples in the demo.ipynb. 
-
-## Gradio Demo
-To run gradio demo, simply run:
-```python
-python gradio_demo.py
+```bash
+cd desktop
+uv run server.py --port 5010
 ```
 
-## Model Weights License
-For the model checkpoints on huggingface model hub, please note that icon_detect model is under AGPL license since it is a license inherited from the original yolo model. And icon_caption_blip2 & icon_caption_florence is under MIT license. Please refer to the LICENSE file in the folder of each model: https://huggingface.co/microsoft/OmniParser.
+### 2. Parser server (on GPU machine)
 
-## 📚 Citation
-Our technical report can be found [here](https://arxiv.org/abs/2408.00203).
-If you find our work useful, please consider citing our work:
+```bash
+cd parser
+uv run server.py --port 8013 --device cuda
 ```
+
+Weights are **auto-downloaded** from HuggingFace on first run.
+
+### 3. Agent (on orchestrator PC)
+
+```bash
+cd agent
+uv run app.py --desktops 192.168.1.10:5010 --parser-url 10.0.0.5:8013
+```
+
+Opens Gradio UI at `http://localhost:7888`.
+
+## Remote Access with Ngrok
+
+Each server supports `--ngrok` to create a public tunnel:
+
+```bash
+# On desktop PC
+cd desktop && uv run server.py --port 5010 --ngrok
+
+# On GPU machine
+cd parser && uv run server.py --port 8013 --device cuda --ngrok
+
+# On agent PC (use the ngrok URLs printed by the other servers)
+cd agent && uv run app.py --desktops https://abc123.ngrok-free.app --parser-url https://def456.ngrok-free.app --ngrok
+```
+
+Set `NGROK_AUTHTOKEN` env var or pass `--ngrok-auth-token`.
+
+## Multi-PC Setup
+
+Control multiple desktops by passing comma-separated URLs:
+
+```bash
+cd agent
+uv run app.py --desktops pc1:5010,pc2:5010,pc3:5010 --parser-url gpu:8013
+```
+
+A dropdown in the UI lets you switch between desktops.
+
+## Supported Models
+
+| Provider | Models | Type |
+|----------|--------|------|
+| OpenAI | GPT-4o, o1, o3-mini | VLM Agent |
+| Anthropic | Claude 3.5 Sonnet | Native Computer Use |
+| Groq | DeepSeek R1 | VLM Agent |
+| DashScope | Qwen 2.5VL | VLM Agent |
+
+All models also support an `-orchestrated` variant with multi-step planning.
+
+## License
+
+MIT License. See [LICENSE](LICENSE).
+
+Icon detection model (YOLO) is under AGPL license. Caption model (Florence-2) is under MIT license.
+
+## Citation
+
+```bibtex
 @misc{lu2024omniparserpurevisionbased,
-      title={OmniParser for Pure Vision Based GUI Agent}, 
+      title={OmniParser for Pure Vision Based GUI Agent},
       author={Yadong Lu and Jianwei Yang and Yelong Shen and Ahmed Awadallah},
       year={2024},
       eprint={2408.00203},
       archivePrefix={arXiv},
       primaryClass={cs.CV},
-      url={https://arxiv.org/abs/2408.00203}, 
 }
 ```
