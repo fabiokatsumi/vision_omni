@@ -172,13 +172,6 @@ class VLMOrchestratedAgent:
                 vlm_plan_str += f'\n{key}: {value}'
 
         response_content = [BetaTextBlock(text=vlm_plan_str, type='text')]
-        if 'box_centroid_coordinate' in vlm_response_json:
-            move_cursor_block = BetaToolUseBlock(
-                id=f'toolu_{uuid.uuid4()}',
-                input={'action': 'mouse_move', 'coordinate': vlm_response_json["box_centroid_coordinate"]},
-                name='computer', type='tool_use',
-            )
-            response_content.append(move_cursor_block)
 
         # Extract just the action type (model may return "left_click, description")
         raw_action = vlm_response_json["Next Action"]
@@ -186,20 +179,30 @@ class VLMOrchestratedAgent:
 
         if action_type == "None":
             print("Task paused/completed.")
-        elif action_type == "type":
-            sim_content_block = BetaToolUseBlock(
-                id=f'toolu_{uuid.uuid4()}',
-                input={'action': action_type, 'text': vlm_response_json["value"]},
-                name='computer', type='tool_use',
-            )
-            response_content.append(sim_content_block)
         else:
-            sim_content_block = BetaToolUseBlock(
-                id=f'toolu_{uuid.uuid4()}',
-                input={'action': action_type},
-                name='computer', type='tool_use',
-            )
-            response_content.append(sim_content_block)
+            # Only move cursor and execute actions when task is not done
+            if 'box_centroid_coordinate' in vlm_response_json:
+                move_cursor_block = BetaToolUseBlock(
+                    id=f'toolu_{uuid.uuid4()}',
+                    input={'action': 'mouse_move', 'coordinate': vlm_response_json["box_centroid_coordinate"]},
+                    name='computer', type='tool_use',
+                )
+                response_content.append(move_cursor_block)
+
+            if action_type == "type":
+                sim_content_block = BetaToolUseBlock(
+                    id=f'toolu_{uuid.uuid4()}',
+                    input={'action': action_type, 'text': vlm_response_json["value"]},
+                    name='computer', type='tool_use',
+                )
+                response_content.append(sim_content_block)
+            else:
+                sim_content_block = BetaToolUseBlock(
+                    id=f'toolu_{uuid.uuid4()}',
+                    input={'action': action_type},
+                    name='computer', type='tool_use',
+                )
+                response_content.append(sim_content_block)
         response_message = BetaMessage(
             id=f'toolu_{uuid.uuid4()}', content=response_content,
             model='', role='assistant', type='message',
