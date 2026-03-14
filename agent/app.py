@@ -8,7 +8,6 @@ Usage:
 
 import os
 from datetime import datetime
-from enum import StrEnum
 from functools import partial
 from pathlib import Path
 from typing import cast
@@ -18,20 +17,16 @@ from anthropic import APIResponse
 from anthropic.types import TextBlock
 from anthropic.types.beta import BetaMessage, BetaTextBlock, BetaToolUseBlock
 from anthropic.types.tool_use_block import ToolUseBlock
-from loop import APIProvider, sampling_loop_sync
+from loop import sampling_loop_sync
 from tools import ToolResult
 from tools import config as tools_config
 import requests
 from requests.exceptions import RequestException
-import base64
-
-CONFIG_DIR = Path("~/.anthropic").expanduser()
 
 INTRO_TEXT = '''
-OmniParser lets you turn any vision-language model into an AI agent.
-Supports **OpenAI (4o/o1/o3-mini), DeepSeek (R1), Qwen (2.5VL), and Anthropic Computer Use (Sonnet).**
+OmniParser + any LLM via **OpenRouter**. Enter your model name (e.g. `openai/gpt-4o`, `google/gemini-2.5-pro`, `anthropic/claude-sonnet-4`).
 
-Type a message and press Send to start. Press Stop to pause. Press the trash icon to clear history.
+Check **Orchestrated** for multi-step planning with progress tracking. Type a message and press Send to start.
 '''
 
 
@@ -56,7 +51,7 @@ tools_config.DESKTOP_SERVER_URL = desktop_urls[0] if desktop_urls else "localhos
 tools_config.ACTIVE_DESKTOP_INDEX = 0
 
 
-class Sender(StrEnum):
+class Sender:
     USER = "user"
     BOT = "assistant"
     TOOL = "tool"
@@ -66,15 +61,11 @@ def setup_state(state):
     if "messages" not in state:
         state["messages"] = []
     if "model" not in state:
-        state["model"] = "omniparser + gpt-4o"
-    if "provider" not in state:
-        state["provider"] = "openai"
-    if "openai_api_key" not in state:
-        state["openai_api_key"] = os.getenv("OPENAI_API_KEY", "")
-    if "anthropic_api_key" not in state:
-        state["anthropic_api_key"] = os.getenv("ANTHROPIC_API_KEY", "")
+        state["model"] = "openai/gpt-4o"
+    if "orchestrated" not in state:
+        state["orchestrated"] = True
     if "api_key" not in state:
-        state["api_key"] = ""
+        state["api_key"] = os.getenv("OPENROUTER_API_KEY", "")
     if "auth_validated" not in state:
         state["auth_validated"] = False
     if "responses" not in state:
@@ -141,7 +132,9 @@ def valid_params(user_input, state):
             errors.append(f"{server_name} server ({url}) is not responding")
 
     if not state["api_key"].strip():
-        errors.append("API Key is not set")
+        errors.append("OpenRouter API Key is not set")
+    if not state["model"].strip():
+        errors.append("Model name is not set")
     if not user_input:
         errors.append("No task provided")
     return errors
@@ -164,7 +157,7 @@ def process_input(user_input, state):
 
     for loop_msg in sampling_loop_sync(
         model=state["model"],
-        provider=state["provider"],
+        orchestrated=state["orchestrated"],
         messages=state["messages"],
         output_callback=partial(chatbot_output_callback, chatbot_state=state['chatbot_messages'], hide_images=False),
         tool_output_callback=partial(_tool_output_callback, tool_state=state["tools"]),
@@ -221,40 +214,31 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
 
     with gr.Accordion("Settings", open=True):
         with gr.Row():
-            with gr.Column():
-                model = gr.Dropdown(
-                    label="Model",
-                    choices=[
-                        "omniparser + gpt-4o", "omniparser + o1", "omniparser + o3-mini",
-                        "omniparser + R1", "omniparser + qwen2.5vl",
-                        "claude-3-5-sonnet-20241022",
-                        "omniparser + gpt-4o-orchestrated", "omniparser + o1-orchestrated",
-                        "omniparser + o3-mini-orchestrated", "omniparser + R1-orchestrated",
-                        "omniparser + qwen2.5vl-orchestrated",
-                    ],
-                    value="omniparser + gpt-4o",
-                    interactive=True,
-                )
-            with gr.Column():
-                only_n_images = gr.Slider(
-                    label="N most recent screenshots",
-                    minimum=0, maximum=10, step=1, value=2, interactive=True,
-                )
+            model = gr.Textbox(
+                label="Model (OpenRouter)",
+                value="openai/gpt-4o",
+                placeholder="e.g. openai/gpt-4o, google/gemini-2.5-pro, anthropic/claude-sonnet-4",
+                interactive=True,
+                scale=3,
+            )
+            orchestrated = gr.Checkbox(
+                label="Orchestrated",
+                value=True,
+                interactive=True,
+                scale=1,
+            )
+            only_n_images = gr.Slider(
+                label="N most recent screenshots",
+                minimum=0, maximum=10, step=1, value=2, interactive=True,
+                scale=1,
+            )
         with gr.Row():
-            with gr.Column(1):
-                provider = gr.Dropdown(
-                    label="API Provider",
-                    choices=[option.value for option in APIProvider],
-                    value="openai",
-                    interactive=False,
-                )
-            with gr.Column(2):
-                api_key = gr.Textbox(
-                    label="API Key", type="password",
-                    value=state.value.get("api_key", ""),
-                    placeholder="Paste your API key here",
-                    interactive=True,
-                )
+            api_key = gr.Textbox(
+                label="OpenRouter API Key", type="password",
+                value=state.value.get("api_key", ""),
+                placeholder="Paste your OpenRouter API key here",
+                interactive=True,
+            )
 
         if len(desktop_urls) > 1:
             desktop_dropdown = gr.Dropdown(
@@ -282,38 +266,17 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
 
     chatbot = gr.Chatbot(label="Agent History", autoscroll=True, height=580)
 
-    def update_model(model_selection, state):
-        state["model"] = model_selection
-        if model_selection == "claude-3-5-sonnet-20241022":
-            provider_choices = [o.value for o in APIProvider if o.value != "openai"]
-        elif model_selection in {"omniparser + gpt-4o", "omniparser + o1", "omniparser + o3-mini",
-                                  "omniparser + gpt-4o-orchestrated", "omniparser + o1-orchestrated", "omniparser + o3-mini-orchestrated"}:
-            provider_choices = ["openai"]
-        elif "R1" in model_selection:
-            provider_choices = ["groq"]
-        elif "qwen" in model_selection:
-            provider_choices = ["dashscope"]
-        else:
-            provider_choices = [o.value for o in APIProvider]
-        default_provider = provider_choices[0]
-        state["provider"] = default_provider
-        state["api_key"] = state.get(f"{default_provider}_api_key", "")
-        return (
-            gr.update(choices=provider_choices, value=default_provider, interactive=len(provider_choices) > 1),
-            gr.update(placeholder=f"{default_provider.title()} API Key", value=state["api_key"]),
-        )
+    def update_model(val, state):
+        state["model"] = val
+
+    def update_orchestrated(val, state):
+        state["orchestrated"] = val
 
     def update_only_n_images(val, state):
         state["only_n_most_recent_images"] = val
 
-    def update_provider(val, state):
-        state["provider"] = val
-        state["api_key"] = state.get(f"{val}_api_key", "")
-        return gr.update(placeholder=f"{val.title()} API Key", value=state["api_key"])
-
     def update_api_key(val, state):
         state["api_key"] = val
-        state[f'{state["provider"]}_api_key'] = val
 
     def clear_chat(state):
         state["messages"] = []
@@ -322,9 +285,9 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
         state['chatbot_messages'] = []
         return state['chatbot_messages']
 
-    model.change(fn=update_model, inputs=[model, state], outputs=[provider, api_key])
+    model.change(fn=update_model, inputs=[model, state], outputs=None)
+    orchestrated.change(fn=update_orchestrated, inputs=[orchestrated, state], outputs=None)
     only_n_images.change(fn=update_only_n_images, inputs=[only_n_images, state], outputs=None)
-    provider.change(fn=update_provider, inputs=[provider, state], outputs=api_key)
     api_key.change(fn=update_api_key, inputs=[api_key, state], outputs=None)
     chatbot.clear(fn=clear_chat, inputs=[state], outputs=[chatbot])
 

@@ -1,4 +1,4 @@
-"""VLM actor for models without native computer-use (GPT-4o, DeepSeek, Qwen, etc.)."""
+"""VLM actor — sends parsed screen to any model via OpenRouter."""
 
 import json
 from collections.abc import Callable
@@ -8,12 +8,9 @@ from PIL import Image, ImageDraw
 import base64
 from io import BytesIO
 
-from anthropic import APIResponse
-from anthropic.types import ToolResultBlockParam
 from anthropic.types.beta import BetaMessage, BetaTextBlock, BetaToolUseBlock, BetaMessageParam, BetaUsage
 
-from actors.llm.openai_client import run_oai_interleaved
-from actors.llm.groq_client import run_groq_interleaved
+from actors.llm.openrouter_client import run_openrouter_interleaved
 from actors.llm.utils import is_image_path
 import time
 import re
@@ -31,7 +28,6 @@ class VLMAgent:
     def __init__(
         self,
         model: str,
-        provider: str,
         api_key: str,
         output_callback: Callable,
         api_response_callback: Callable,
@@ -39,20 +35,7 @@ class VLMAgent:
         only_n_most_recent_images: int | None = None,
         print_usage: bool = True,
     ):
-        if model == "omniparser + gpt-4o":
-            self.model = "gpt-4o-2024-11-20"
-        elif model == "omniparser + R1":
-            self.model = "deepseek-r1-distill-llama-70b"
-        elif model == "omniparser + qwen2.5vl":
-            self.model = "qwen2.5-vl-72b-instruct"
-        elif model == "omniparser + o1":
-            self.model = "o1"
-        elif model == "omniparser + o3-mini":
-            self.model = "o3-mini"
-        else:
-            raise ValueError(f"Model {model} not supported")
-
-        self.provider = provider
+        self.model = model
         self.api_key = api_key
         self.api_response_callback = api_response_callback
         self.max_tokens = max_tokens
@@ -60,7 +43,6 @@ class VLMAgent:
         self.output_callback = output_callback
         self.print_usage = print_usage
         self.total_token_usage = 0
-        self.total_cost = 0
         self.step_count = 0
         self.system = ''
 
@@ -87,41 +69,16 @@ class VLMAgent:
             planner_messages[-1]["content"].append(f"{OUTPUT_DIR}/screenshot_som_{screenshot_uuid}.png")
 
         start = time.time()
-        if "gpt" in self.model or "o1" in self.model or "o3-mini" in self.model:
-            vlm_response, token_usage = run_oai_interleaved(
-                messages=planner_messages, system=system, model_name=self.model,
-                api_key=self.api_key, max_tokens=self.max_tokens,
-                provider_base_url="https://api.openai.com/v1", temperature=0,
-            )
-            self.total_token_usage += token_usage
-            if 'gpt' in self.model:
-                self.total_cost += (token_usage * 2.5 / 1000000)
-            elif 'o1' in self.model:
-                self.total_cost += (token_usage * 15 / 1000000)
-            elif 'o3-mini' in self.model:
-                self.total_cost += (token_usage * 1.1 / 1000000)
-        elif "r1" in self.model:
-            vlm_response, token_usage = run_groq_interleaved(
-                messages=planner_messages, system=system, model_name=self.model,
-                api_key=self.api_key, max_tokens=self.max_tokens,
-            )
-            self.total_token_usage += token_usage
-            self.total_cost += (token_usage * 0.99 / 1000000)
-        elif "qwen" in self.model:
-            vlm_response, token_usage = run_oai_interleaved(
-                messages=planner_messages, system=system, model_name=self.model,
-                api_key=self.api_key, max_tokens=min(2048, self.max_tokens),
-                provider_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1", temperature=0,
-            )
-            self.total_token_usage += token_usage
-            self.total_cost += (token_usage * 2.2 / 1000000)
-        else:
-            raise ValueError(f"Model {self.model} not supported")
+        vlm_response, token_usage = run_openrouter_interleaved(
+            messages=planner_messages, system=system, model_name=self.model,
+            api_key=self.api_key, max_tokens=self.max_tokens, temperature=0,
+        )
+        self.total_token_usage += token_usage
         latency_vlm = time.time() - start
         self.output_callback(f"LLM: {latency_vlm:.2f}s, Parser: {latency_omniparser:.2f}s", sender="bot")
 
         if self.print_usage:
-            print(f"Total token: {self.total_token_usage}. Cost: ${self.total_cost:.5f}")
+            print(f"Total tokens: {self.total_token_usage}")
 
         vlm_response_json = extract_data(vlm_response, "json")
         vlm_response_json = json.loads(vlm_response_json)
@@ -222,13 +179,7 @@ Output format:
 
 IMPORTANT NOTES:
 1. You should only give a single action at a time.
-"""
-        thinking_model = "r1" in self.model
-        if not thinking_model:
-            main_section += "\n2. You should give an analysis to the current screen, and reflect on what has been done by looking at the history.\n"
-        else:
-            main_section += "\n2. In <think> XML tags give an analysis to the current screen. In <output> XML tags put the next action prediction JSON.\n"
-        main_section += """
+2. You should give an analysis to the current screen, and reflect on what has been done by looking at the history.
 3. Attach the next action prediction in the "Next Action".
 4. You should not include other actions, such as keyboard shortcuts.
 5. When the task is completed, say "Next Action": "None".

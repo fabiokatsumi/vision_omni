@@ -1,4 +1,4 @@
-"""VLM orchestrated actor with multi-step planning."""
+"""VLM orchestrated actor with multi-step planning — uses OpenRouter."""
 
 import json
 from collections.abc import Callable
@@ -10,12 +10,9 @@ from io import BytesIO
 import copy
 from pathlib import Path
 from datetime import datetime
-from anthropic import APIResponse
-from anthropic.types import ToolResultBlockParam
 from anthropic.types.beta import BetaMessage, BetaTextBlock, BetaToolUseBlock, BetaMessageParam, BetaUsage
 
-from actors.llm.openai_client import run_oai_interleaved
-from actors.llm.groq_client import run_groq_interleaved
+from actors.llm.openrouter_client import run_openrouter_interleaved
 from actors.llm.utils import is_image_path
 import time
 import re
@@ -68,7 +65,6 @@ class VLMOrchestratedAgent:
     def __init__(
         self,
         model: str,
-        provider: str,
         api_key: str,
         output_callback: Callable,
         api_response_callback: Callable,
@@ -77,20 +73,7 @@ class VLMOrchestratedAgent:
         print_usage: bool = True,
         save_folder: str = None,
     ):
-        if model == "omniparser + gpt-4o" or model == "omniparser + gpt-4o-orchestrated":
-            self.model = "gpt-4o-2024-11-20"
-        elif model == "omniparser + R1" or model == "omniparser + R1-orchestrated":
-            self.model = "deepseek-r1-distill-llama-70b"
-        elif model == "omniparser + qwen2.5vl" or model == "omniparser + qwen2.5vl-orchestrated":
-            self.model = "qwen2.5-vl-72b-instruct"
-        elif model == "omniparser + o1" or model == "omniparser + o1-orchestrated":
-            self.model = "o1"
-        elif model == "omniparser + o3-mini" or model == "omniparser + o3-mini-orchestrated":
-            self.model = "o3-mini"
-        else:
-            raise ValueError(f"Model {model} not supported")
-
-        self.provider = provider
+        self.model = model
         self.api_key = api_key
         self.api_response_callback = api_response_callback
         self.max_tokens = max_tokens
@@ -101,7 +84,6 @@ class VLMOrchestratedAgent:
             os.makedirs(self.save_folder, exist_ok=True)
         self.print_usage = print_usage
         self.total_token_usage = 0
-        self.total_cost = 0
         self.step_count = 0
         self.plan, self.ledger = None, None
         self.system = ''
@@ -145,41 +127,16 @@ class VLMOrchestratedAgent:
             planner_messages[-1]["content"].append(f"{OUTPUT_DIR}/screenshot_som_{screenshot_uuid}.png")
 
         start = time.time()
-        if "gpt" in self.model or "o1" in self.model or "o3-mini" in self.model:
-            vlm_response, token_usage = run_oai_interleaved(
-                messages=planner_messages, system=system, model_name=self.model,
-                api_key=self.api_key, max_tokens=self.max_tokens,
-                provider_base_url="https://api.openai.com/v1", temperature=0,
-            )
-            self.total_token_usage += token_usage
-            if 'gpt' in self.model:
-                self.total_cost += (token_usage * 2.5 / 1000000)
-            elif 'o1' in self.model:
-                self.total_cost += (token_usage * 15 / 1000000)
-            elif 'o3-mini' in self.model:
-                self.total_cost += (token_usage * 1.1 / 1000000)
-        elif "r1" in self.model:
-            vlm_response, token_usage = run_groq_interleaved(
-                messages=planner_messages, system=system, model_name=self.model,
-                api_key=self.api_key, max_tokens=self.max_tokens,
-            )
-            self.total_token_usage += token_usage
-            self.total_cost += (token_usage * 0.99 / 1000000)
-        elif "qwen" in self.model:
-            vlm_response, token_usage = run_oai_interleaved(
-                messages=planner_messages, system=system, model_name=self.model,
-                api_key=self.api_key, max_tokens=min(2048, self.max_tokens),
-                provider_base_url="https://dashscope.aliyuncs.com/compatible-mode/v1", temperature=0,
-            )
-            self.total_token_usage += token_usage
-            self.total_cost += (token_usage * 2.2 / 1000000)
-        else:
-            raise ValueError(f"Model {self.model} not supported")
+        vlm_response, token_usage = run_openrouter_interleaved(
+            messages=planner_messages, system=system, model_name=self.model,
+            api_key=self.api_key, max_tokens=self.max_tokens, temperature=0,
+        )
+        self.total_token_usage += token_usage
         latency_vlm = time.time() - start
         self.output_callback(f'<i>Step {self.step_count} | Parser: {latency_omniparser:.2f}s | LLM: {latency_vlm:.2f}s</i>')
 
         if self.print_usage:
-            print(f"Total token: {self.total_token_usage}. Cost: ${self.total_cost:.5f}")
+            print(f"Total tokens: {self.total_token_usage}")
 
         vlm_response_json = extract_data(vlm_response, "json")
         vlm_response_json = json.loads(vlm_response_json)
@@ -293,13 +250,7 @@ Output format:
 
 IMPORTANT NOTES:
 1. You should only give a single action at a time.
-"""
-        thinking_model = "r1" in self.model
-        if not thinking_model:
-            main_section += "\n2. Analyze the current screen and reflect on history.\n"
-        else:
-            main_section += "\n2. In <think> tags analyze the screen. In <output> tags put the JSON.\n"
-        main_section += """
+2. Analyze the current screen and reflect on history.
 3. Attach the next action prediction in the "Next Action".
 4. No keyboard shortcuts.
 5. When done, say "Next Action": "None".
@@ -323,10 +274,9 @@ IMPORTANT NOTES:
         """
         input_message = copy.deepcopy(messages)
         input_message.append({"role": "user", "content": plan_prompt})
-        vlm_response, token_usage = run_oai_interleaved(
+        vlm_response, token_usage = run_openrouter_interleaved(
             messages=input_message, system="", model_name=self.model,
-            api_key=self.api_key, max_tokens=self.max_tokens,
-            provider_base_url="https://api.openai.com/v1", temperature=0,
+            api_key=self.api_key, max_tokens=self.max_tokens, temperature=0,
         )
         plan = extract_data(vlm_response, "json")
         plan_path = os.path.join(self.save_folder, "plan.json")
@@ -341,10 +291,9 @@ IMPORTANT NOTES:
         update_ledger_prompt = ORCHESTRATOR_LEDGER_PROMPT.format(task=self._task)
         input_message = copy.deepcopy(messages)
         input_message.append({"role": "user", "content": update_ledger_prompt})
-        vlm_response, token_usage = run_oai_interleaved(
+        vlm_response, token_usage = run_openrouter_interleaved(
             messages=input_message, system="", model_name=self.model,
-            api_key=self.api_key, max_tokens=self.max_tokens,
-            provider_base_url="https://api.openai.com/v1", temperature=0,
+            api_key=self.api_key, max_tokens=self.max_tokens, temperature=0,
         )
         return extract_data(vlm_response, "json")
 
