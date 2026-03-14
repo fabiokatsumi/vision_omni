@@ -23,6 +23,7 @@ def sampling_loop_sync(
     api_response_callback: Callable[[APIResponse[BetaMessage]], None],
     api_key: str,
     only_n_most_recent_images: int | None = 2,
+    send_screenshots: bool = True,
     max_tokens: int = 4096,
     parser_url: str,
     save_folder: str = "./uploads",
@@ -38,6 +39,7 @@ def sampling_loop_sync(
             output_callback=output_callback,
             max_tokens=max_tokens,
             only_n_most_recent_images=only_n_most_recent_images,
+            send_screenshots=send_screenshots,
             save_folder=save_folder,
         )
     else:
@@ -47,6 +49,7 @@ def sampling_loop_sync(
             output_callback=output_callback,
             max_tokens=max_tokens,
             only_n_most_recent_images=only_n_most_recent_images,
+            send_screenshots=send_screenshots,
         )
 
     executor = AnthropicExecutor(

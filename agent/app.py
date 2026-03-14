@@ -74,6 +74,8 @@ def setup_state(state):
         state["tools"] = {}
     if "only_n_most_recent_images" not in state:
         state["only_n_most_recent_images"] = 2
+    if "send_screenshots" not in state:
+        state["send_screenshots"] = True
     if 'chatbot_messages' not in state:
         state['chatbot_messages'] = []
     if 'stop' not in state:
@@ -164,6 +166,7 @@ def process_input(user_input, state):
         api_response_callback=partial(_api_response_callback, response_state=state["responses"]),
         api_key=state["api_key"],
         only_n_most_recent_images=state["only_n_most_recent_images"],
+        send_screenshots=state["send_screenshots"],
         max_tokens=16384,
         parser_url=args.parser_url,
     ):
@@ -227,6 +230,12 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
                 interactive=True,
                 scale=1,
             )
+            send_screenshots = gr.Checkbox(
+                label="Send screenshots to LLM",
+                value=True,
+                interactive=True,
+                scale=1,
+            )
             only_n_images = gr.Slider(
                 label="N most recent screenshots",
                 minimum=0, maximum=10, step=1, value=2, interactive=True,
@@ -275,6 +284,9 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
     def update_only_n_images(val, state):
         state["only_n_most_recent_images"] = val
 
+    def update_send_screenshots(val, state):
+        state["send_screenshots"] = val
+
     def update_api_key(val, state):
         state["api_key"] = val
 
@@ -288,6 +300,7 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
     model.change(fn=update_model, inputs=[model, state], outputs=None)
     orchestrated.change(fn=update_orchestrated, inputs=[orchestrated, state], outputs=None)
     only_n_images.change(fn=update_only_n_images, inputs=[only_n_images, state], outputs=None)
+    send_screenshots.change(fn=update_send_screenshots, inputs=[send_screenshots, state], outputs=None)
     api_key.change(fn=update_api_key, inputs=[api_key, state], outputs=None)
     chatbot.clear(fn=clear_chat, inputs=[state], outputs=[chatbot])
 

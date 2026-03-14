@@ -33,6 +33,7 @@ class VLMAgent:
         api_response_callback: Callable,
         max_tokens: int = 4096,
         only_n_most_recent_images: int | None = None,
+        send_screenshots: bool = True,
         print_usage: bool = True,
     ):
         self.model = model
@@ -40,6 +41,7 @@ class VLMAgent:
         self.api_response_callback = api_response_callback
         self.max_tokens = max_tokens
         self.only_n_most_recent_images = only_n_most_recent_images
+        self.send_screenshots = send_screenshots
         self.output_callback = output_callback
         self.print_usage = print_usage
         self.total_token_usage = 0
@@ -65,8 +67,9 @@ class VLMAgent:
         if isinstance(planner_messages[-1], dict):
             if not isinstance(planner_messages[-1]["content"], list):
                 planner_messages[-1]["content"] = [planner_messages[-1]["content"]]
-            planner_messages[-1]["content"].append(f"{OUTPUT_DIR}/screenshot_{screenshot_uuid}.png")
-            planner_messages[-1]["content"].append(f"{OUTPUT_DIR}/screenshot_som_{screenshot_uuid}.png")
+            if self.send_screenshots:
+                planner_messages[-1]["content"].append(f"{OUTPUT_DIR}/screenshot_{screenshot_uuid}.png")
+                planner_messages[-1]["content"].append(f"{OUTPUT_DIR}/screenshot_som_{screenshot_uuid}.png")
 
         start = time.time()
         vlm_response, token_usage = run_openrouter_interleaved(
