@@ -291,7 +291,8 @@ with gr.Blocks(theme=gr.themes.Default()) as demo:
     api_key.change(fn=update_api_key, inputs=[api_key, state], outputs=None)
     chatbot.clear(fn=clear_chat, inputs=[state], outputs=[chatbot])
 
-    submit_button.click(process_input, [chat_input, state], chatbot)
+    submit_button.click(process_input, [chat_input, state], chatbot).then(lambda: "", outputs=chat_input)
+    chat_input.submit(process_input, [chat_input, state], chatbot).then(lambda: "", outputs=chat_input)
     stop_button.click(stop_app, [state], None)
 
 if __name__ == "__main__":
