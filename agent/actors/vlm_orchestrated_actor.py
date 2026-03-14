@@ -97,6 +97,8 @@ class VLMOrchestratedAgent:
         self.only_n_most_recent_images = only_n_most_recent_images
         self.output_callback = output_callback
         self.save_folder = save_folder
+        if self.save_folder:
+            os.makedirs(self.save_folder, exist_ok=True)
         self.print_usage = print_usage
         self.total_token_usage = 0
         self.total_cost = 0
