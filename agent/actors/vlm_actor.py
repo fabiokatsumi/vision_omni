@@ -1,6 +1,7 @@
 """VLM actor — sends parsed screen to any model via OpenRouter."""
 
 import json
+from collections import Counter
 from collections.abc import Callable
 from typing import cast, Callable
 import uuid
@@ -17,6 +18,29 @@ import time
 import re
 
 OUTPUT_DIR = "./tmp/outputs"
+
+STUCK_WINDOW = 5
+STUCK_THRESHOLD = 3
+
+STUCK_ESCAPE_PROMPT = """
+CRITICAL: You have been repeating the same action multiple times without progress. You MUST try a completely different approach now. Consider:
+- A different UI element entirely
+- A keyboard shortcut instead of clicking (or vice versa)
+- Scrolling to reveal new elements
+- Right-clicking for context menus
+- Using the application's menu bar
+- Opening a terminal or file manager as an alternative path
+Do NOT repeat any of your recent actions. Pick something novel.
+"""
+
+
+def _is_stuck(recent_actions):
+    """True if the same (action, box_id) appears >= STUCK_THRESHOLD times in recent window."""
+    if len(recent_actions) < STUCK_THRESHOLD:
+        return False
+    window = recent_actions[-STUCK_WINDOW:]
+    counts = Counter(window)
+    return counts.most_common(1)[0][1] >= STUCK_THRESHOLD
 
 
 def extract_data(input_string, data_type):
@@ -47,6 +71,7 @@ class VLMAgent:
         self.print_usage = print_usage
         self.total_token_usage = 0
         self.step_count = 0
+        self._recent_actions = []
         self.system = ''
 
     def __call__(self, messages: list, parsed_screen: list[str, list, dict]):
@@ -76,10 +101,16 @@ class VLMAgent:
                 planner_messages[-1]["content"].append(f"{OUTPUT_DIR}/screenshot_som_{screenshot_uuid}.png")
         timer.stop("Msg Prep")
 
+        stuck = _is_stuck(self._recent_actions)
+        temperature = 0.8 if stuck else 0
+        if stuck:
+            system += STUCK_ESCAPE_PROMPT
+            self.output_callback('Stuck detected — trying a different approach', sender="bot")
+
         timer.start("Action LLM")
         vlm_response, token_usage = run_openrouter_interleaved(
             messages=planner_messages, system=system, model_name=self.model,
-            api_key=self.api_key, max_tokens=self.max_tokens, temperature=0,
+            api_key=self.api_key, max_tokens=self.max_tokens, temperature=temperature,
         )
         self.total_token_usage += token_usage
         timer.stop("Action LLM")
@@ -136,6 +167,10 @@ class VLMAgent:
         # Extract just the action type (model may return "left_click, description")
         raw_action = vlm_response_json["Next Action"]
         action_type = raw_action.split(",")[0].strip()
+
+        # Track action for stuck detection
+        self._recent_actions.append((action_type, vlm_response_json.get("Box ID")))
+        self._recent_actions = self._recent_actions[-STUCK_WINDOW:]
 
         if action_type == "None":
             print("Task paused/completed.")

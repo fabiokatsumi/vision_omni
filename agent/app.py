@@ -7,6 +7,7 @@ Usage:
 """
 
 import os
+import re
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -22,6 +23,27 @@ from tools import ToolResult
 from tools import config as tools_config
 import requests
 from requests.exceptions import RequestException
+
+MAX_CHATBOT_IMAGES = 4  # Only keep this many recent images in the chatbot UI
+MAX_MESSAGES = 50  # Cap LLM message history length
+
+_BASE64_IMG_RE = re.compile(r'<img\s+src="data:image/[^;]+;base64,[^"]{100,}"[^>]*>')
+
+
+def _trim_chatbot_images(chatbot_messages: list, max_images: int = MAX_CHATBOT_IMAGES):
+    """Replace old base64 images with placeholders to prevent browser OOM."""
+    # Find indices of messages that contain base64 images
+    image_indices = []
+    for i, msg in enumerate(chatbot_messages):
+        content = msg.get("content", "")
+        if isinstance(content, str) and _BASE64_IMG_RE.search(content):
+            image_indices.append(i)
+
+    # Replace all but the last max_images
+    to_replace = image_indices[:-max_images] if len(image_indices) > max_images else []
+    for i in to_replace:
+        chatbot_messages[i]["content"] = "<i>[Screenshot trimmed to save memory]</i>"
+
 
 INTRO_TEXT = '''
 OmniParser + any LLM via **OpenRouter**. Enter your model name (e.g. `openai/gpt-4o`, `google/gemini-2.5-pro`, `anthropic/claude-sonnet-4`).
@@ -150,6 +172,15 @@ def process_input(user_input, state):
     if errors:
         raise gr.Error("Validation errors: " + ", ".join(errors))
 
+    # Clear stale per-run state to free memory
+    state["responses"] = {}
+    state["tools"] = {}
+
+    # Cap message history to prevent unbounded growth
+    if len(state["messages"]) > MAX_MESSAGES:
+        # Keep first message (original user task) + most recent messages
+        state["messages"] = state["messages"][:1] + state["messages"][-(MAX_MESSAGES - 1):]
+
     state["messages"].append({
         "role": Sender.USER,
         "content": [TextBlock(type="text", text=user_input)],
@@ -170,6 +201,7 @@ def process_input(user_input, state):
         max_tokens=16384,
         parser_url=args.parser_url,
     ):
+        _trim_chatbot_images(state['chatbot_messages'])
         if loop_msg is None or state.get("stop"):
             yield state['chatbot_messages']
             break

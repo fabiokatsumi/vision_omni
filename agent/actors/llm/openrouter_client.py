@@ -40,7 +40,7 @@ def run_openrouter_interleaved(messages: list, system: str, model_name: str, api
         "temperature": temperature,
     }
 
-    response = requests.post(f"{OPENROUTER_BASE_URL}/chat/completions", headers=headers, json=payload)
+    response = requests.post(f"{OPENROUTER_BASE_URL}/chat/completions", headers=headers, json=payload, timeout=120)
 
     try:
         data = response.json()
