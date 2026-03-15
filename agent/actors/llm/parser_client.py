@@ -3,6 +3,7 @@ import base64
 from pathlib import Path
 from tools.screen_capture import get_screenshot
 from actors.llm.utils import encode_image
+from utils.timer import StepTimer
 
 OUTPUT_DIR = "./tmp/outputs"
 
@@ -12,24 +13,39 @@ class ParserClient:
         self.url = url
 
     def __call__(self):
+        timer = StepTimer()
+
+        timer.start("Screenshot")
         screenshot, screenshot_path = get_screenshot()
+        timer.stop("Screenshot")
+
         screenshot_path = str(screenshot_path)
+
+        timer.start("Img Encode")
         image_base64 = encode_image(screenshot_path)
+        timer.stop("Img Encode")
+
+        timer.start("OmniParser")
         response = requests.post(self.url, json={"base64_image": image_base64})
         response_json = response.json()
+        timer.stop("OmniParser")
+
         print('parser latency:', response_json['latency'])
 
+        timer.start("SOM Save")
         som_image_data = base64.b64decode(response_json['som_image_base64'])
         screenshot_path_uuid = Path(screenshot_path).stem.replace("screenshot_", "")
         som_screenshot_path = f"{OUTPUT_DIR}/screenshot_som_{screenshot_path_uuid}.png"
         with open(som_screenshot_path, "wb") as f:
             f.write(som_image_data)
+        timer.stop("SOM Save")
 
         response_json['width'] = screenshot.size[0]
         response_json['height'] = screenshot.size[1]
         response_json['original_screenshot_base64'] = image_base64
         response_json['screenshot_uuid'] = screenshot_path_uuid
         response_json = self.reformat_messages(response_json)
+        response_json['_timer'] = timer
         return response_json
 
     def reformat_messages(self, response_json: dict):

@@ -14,6 +14,7 @@ from anthropic.types.beta import BetaMessage, BetaTextBlock, BetaToolUseBlock, B
 
 from actors.llm.openrouter_client import run_openrouter_interleaved
 from actors.llm.utils import is_image_path
+from utils.timer import StepTimer
 import time
 import re
 import os
@@ -91,12 +92,18 @@ class VLMOrchestratedAgent:
         self.system = ''
 
     def __call__(self, messages: list, parsed_screen: list[str, list, dict]):
+        timer = parsed_screen.get('_timer', StepTimer())
+
         if self.step_count == 0:
+            timer.start("Plan LLM")
             plan = self._initialize_task(messages)
+            timer.stop("Plan LLM")
             self.output_callback(f'-- Plan: {plan} --')
             messages.append({"role": "assistant", "content": plan})
         else:
+            timer.start("Ledger LLM")
             updated_ledger = self._update_ledger(messages)
+            timer.stop("Ledger LLM")
             self.output_callback(
                 f'<details><summary><strong>Task Progress Ledger</strong></summary>'
                 f'<pre>{updated_ledger}</pre></details>'
@@ -105,10 +112,13 @@ class VLMOrchestratedAgent:
             self.ledger = updated_ledger
 
         self.step_count += 1
+
+        timer.start("Screenshot Save")
         with open(f"{self.save_folder}/screenshot_{self.step_count}.png", "wb") as f:
             f.write(base64.b64decode(parsed_screen['original_screenshot_base64']))
         with open(f"{self.save_folder}/som_screenshot_{self.step_count}.png", "wb") as f:
             f.write(base64.b64decode(parsed_screen['som_image_base64']))
+        timer.stop("Screenshot Save")
 
         latency_omniparser = parsed_screen['latency']
         screen_info = str(parsed_screen['screen_info'])
@@ -118,6 +128,7 @@ class VLMOrchestratedAgent:
         boxids_and_labels = parsed_screen["screen_info"]
         system = self._get_system_prompt(boxids_and_labels)
 
+        timer.start("Msg Prep")
         planner_messages = messages
         _remove_som_images(planner_messages)
         _maybe_filter_to_n_most_recent_images(planner_messages, self.only_n_most_recent_images)
@@ -128,22 +139,31 @@ class VLMOrchestratedAgent:
             if self.send_screenshots:
                 planner_messages[-1]["content"].append(f"{OUTPUT_DIR}/screenshot_{screenshot_uuid}.png")
                 planner_messages[-1]["content"].append(f"{OUTPUT_DIR}/screenshot_som_{screenshot_uuid}.png")
+        timer.stop("Msg Prep")
 
-        start = time.time()
+        timer.start("Action LLM")
         vlm_response, token_usage = run_openrouter_interleaved(
             messages=planner_messages, system=system, model_name=self.model,
             api_key=self.api_key, max_tokens=self.max_tokens, temperature=0,
         )
         self.total_token_usage += token_usage
-        latency_vlm = time.time() - start
-        self.output_callback(f'<i>Step {self.step_count} | Parser: {latency_omniparser:.2f}s | LLM: {latency_vlm:.2f}s</i>')
+        timer.stop("Action LLM")
+
+        # Display full timing breakdown
+        self.output_callback(
+            f'<i>Step {self.step_count} | Total: {timer.total():.2f}s<br/>'
+            f'&nbsp;&nbsp;{timer.summary()}</i>'
+        )
 
         if self.print_usage:
             print(f"Total tokens: {self.total_token_usage}")
 
+        timer.start("Response Parse")
         vlm_response_json = extract_data(vlm_response, "json")
         vlm_response_json = json.loads(vlm_response_json)
+        timer.stop("Response Parse")
 
+        timer.start("Visualization")
         img_to_show_base64 = parsed_screen["som_image_base64"]
         if "Box ID" in vlm_response_json:
             try:
@@ -161,6 +181,8 @@ class VLMOrchestratedAgent:
                 img_to_show_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
             except:
                 pass
+        timer.stop("Visualization")
+
         self.output_callback(f'<img src="data:image/png;base64,{img_to_show_base64}">')
         self.output_callback(
             f'<details><summary><strong>Parsed Screen Elements</strong></summary>'
@@ -212,18 +234,20 @@ class VLMOrchestratedAgent:
             stop_reason='tool_use', usage=BetaUsage(input_tokens=0, output_tokens=0),
         )
 
+        timer.start("Trajectory Save")
         step_trajectory = {
             "screenshot_path": f"{self.save_folder}/screenshot_{self.step_count}.png",
             "som_screenshot_path": f"{self.save_folder}/som_screenshot_{self.step_count}.png",
             "screen_info": screen_info,
             "latency_omniparser": latency_omniparser,
-            "latency_vlm": latency_vlm,
+            "timing_breakdown": {name: dur for name, dur in timer._durations.items()},
             "vlm_response_json": vlm_response_json,
             'ledger': self.ledger,
         }
         with open(f"{self.save_folder}/trajectory.json", "a") as f:
             f.write(json.dumps(step_trajectory))
             f.write("\n")
+        timer.stop("Trajectory Save")
 
         return response_message, vlm_response_json
 

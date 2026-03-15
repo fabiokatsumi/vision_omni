@@ -192,7 +192,7 @@ class ComputerTool(BaseAnthropicTool):
                 json=payload,
                 timeout=90,
             )
-            time.sleep(0.7)
+            time.sleep(0.3)
             if response.status_code != 200:
                 raise ToolError(f"Failed to execute action {action_name}. Status code: {response.status_code}")
             return response.json()
@@ -213,7 +213,7 @@ class ComputerTool(BaseAnthropicTool):
             self.target_dimension = MAX_SCALING_TARGETS["WXGA"]
         width, height = self.target_dimension["width"], self.target_dimension["height"]
         screenshot, path = get_screenshot(resize=True, target_width=width, target_height=height)
-        time.sleep(0.7)
+        time.sleep(0.3)
         return ToolResult(base64_image=base64.b64encode(path.read_bytes()).decode())
 
     def padding_image(self, screenshot):

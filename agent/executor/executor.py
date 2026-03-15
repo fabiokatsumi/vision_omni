@@ -1,4 +1,5 @@
 import asyncio
+import time
 from typing import Any, Dict, cast
 from collections.abc import Callable
 from anthropic.types.beta import (
@@ -19,6 +20,7 @@ class AnthropicExecutor:
         self.tool_collection = ToolCollection(ComputerTool())
         self.output_callback = output_callback
         self.tool_output_callback = tool_output_callback
+        self.last_execution_times: list[tuple[str, float]] = []
 
     def __call__(self, response: BetaMessage, messages: list[BetaMessageParam]):
         new_message = {
@@ -28,14 +30,19 @@ class AnthropicExecutor:
         if new_message not in messages:
             messages.append(new_message)
 
+        self.last_execution_times = []
         tool_result_content: list[BetaToolResultBlockParam] = []
         for content_block in cast(list[BetaContentBlock], response.content):
             self.output_callback(content_block, sender="bot")
             if content_block.type == "tool_use":
+                action_name = content_block.input.get('action', 'unknown')
+                start = time.time()
                 result = asyncio.run(self.tool_collection.run(
                     name=content_block.name,
                     tool_input=cast(dict[str, Any], content_block.input),
                 ))
+                elapsed = time.time() - start
+                self.last_execution_times.append((action_name, elapsed))
                 self.output_callback(result, sender="bot")
                 tool_result_content.append(
                     _make_api_tool_result(result, content_block.id)
@@ -44,6 +51,13 @@ class AnthropicExecutor:
             display_messages = _message_display_callback(messages)
             for user_msg, bot_msg in display_messages:
                 yield [None, None], tool_result_content
+
+        # Show execution timing breakdown
+        if self.last_execution_times:
+            parts = [f"{name}: {dur:.2f}s" for name, dur in self.last_execution_times]
+            total = sum(dur for _, dur in self.last_execution_times)
+            timing_msg = f'<i>Execution: {total:.2f}s ({" | ".join(parts)})</i>'
+            self.output_callback(timing_msg, sender="bot")
 
         if not tool_result_content:
             return messages

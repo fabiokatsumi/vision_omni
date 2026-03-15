@@ -12,6 +12,7 @@ from anthropic.types.beta import BetaMessage, BetaTextBlock, BetaToolUseBlock, B
 
 from actors.llm.openrouter_client import run_openrouter_interleaved
 from actors.llm.utils import is_image_path
+from utils.timer import StepTimer
 import time
 import re
 
@@ -49,6 +50,8 @@ class VLMAgent:
         self.system = ''
 
     def __call__(self, messages: list, parsed_screen: list[str, list, dict]):
+        timer = parsed_screen.get('_timer', StepTimer())
+
         self.step_count += 1
         image_base64 = parsed_screen['original_screenshot_base64']
         latency_omniparser = parsed_screen['latency']
@@ -60,6 +63,7 @@ class VLMAgent:
         boxids_and_labels = parsed_screen["screen_info"]
         system = self._get_system_prompt(boxids_and_labels)
 
+        timer.start("Msg Prep")
         planner_messages = messages
         _remove_som_images(planner_messages)
         _maybe_filter_to_n_most_recent_images(planner_messages, self.only_n_most_recent_images)
@@ -70,22 +74,32 @@ class VLMAgent:
             if self.send_screenshots:
                 planner_messages[-1]["content"].append(f"{OUTPUT_DIR}/screenshot_{screenshot_uuid}.png")
                 planner_messages[-1]["content"].append(f"{OUTPUT_DIR}/screenshot_som_{screenshot_uuid}.png")
+        timer.stop("Msg Prep")
 
-        start = time.time()
+        timer.start("Action LLM")
         vlm_response, token_usage = run_openrouter_interleaved(
             messages=planner_messages, system=system, model_name=self.model,
             api_key=self.api_key, max_tokens=self.max_tokens, temperature=0,
         )
         self.total_token_usage += token_usage
-        latency_vlm = time.time() - start
-        self.output_callback(f"LLM: {latency_vlm:.2f}s, Parser: {latency_omniparser:.2f}s", sender="bot")
+        timer.stop("Action LLM")
+
+        # Display full timing breakdown
+        self.output_callback(
+            f'<i>Step {self.step_count} | Total: {timer.total():.2f}s<br/>'
+            f'&nbsp;&nbsp;{timer.summary()}</i>',
+            sender="bot",
+        )
 
         if self.print_usage:
             print(f"Total tokens: {self.total_token_usage}")
 
+        timer.start("Response Parse")
         vlm_response_json = extract_data(vlm_response, "json")
         vlm_response_json = json.loads(vlm_response_json)
+        timer.stop("Response Parse")
 
+        timer.start("Visualization")
         img_to_show_base64 = parsed_screen["som_image_base64"]
         if "Box ID" in vlm_response_json:
             try:
@@ -103,6 +117,8 @@ class VLMAgent:
                 img_to_show_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
             except:
                 pass
+        timer.stop("Visualization")
+
         self.output_callback(f'<img src="data:image/png;base64,{img_to_show_base64}">', sender="bot")
         self.output_callback(
             f'<details><summary>Parsed Screen elements</summary><pre>{screen_info}</pre></details>',

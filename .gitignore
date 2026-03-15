@@ -12,3 +12,6 @@ wget-log
 weights/icon_caption_florence_v2/
 omnitool/gradio/uploads/
 omnitool/omnibox/scripts/weights/
+agent/tmp/
+agent/uploads/
+agent/uv.lock
