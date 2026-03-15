@@ -178,7 +178,6 @@ def process_input(user_input, state):
 
 def stop_app(state):
     state["stop"] = True
-    return "Stopped"
 
 
 # Check server connectivity on startup

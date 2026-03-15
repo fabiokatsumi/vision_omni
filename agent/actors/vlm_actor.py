@@ -149,7 +149,7 @@ class VLMAgent:
                 )
                 response_content.append(move_cursor_block)
 
-            if action_type == "type":
+            if action_type in ("type", "key"):
                 sim_content_block = BetaToolUseBlock(
                     id=f'toolu_{uuid.uuid4()}',
                     input={'action': action_type, 'text': vlm_response_json["value"]},
@@ -174,7 +174,7 @@ class VLMAgent:
         main_section = f"""
 You are using a computer.
 You are able to use a mouse and keyboard to interact with the computer based on the given task and screenshot.
-You can only interact with the desktop GUI (no terminal or application menu access).
+You have full access to the computer. You can open any application (terminal, text editors, file managers, etc.) using keyboard shortcuts, taskbar clicks, or any other method.
 
 You may be given some history plan and actions, this is the response from the previous loop.
 You should carefully consider your plan base on the task, screenshot, and history actions.
@@ -183,6 +183,7 @@ Here is the list of all detected bounding boxes by IDs on the screen and their d
 
 Your available "Next Action" only include:
 - type: types a string of text.
+- key: presses a key or key combination. Use the "value" field for the key(s), e.g. "ctrl+c", "cmd+space", "enter". Keys are joined with "+".
 - left_click: move mouse to box id and left clicks.
 - right_click: move mouse to box id and right clicks.
 - double_click: move mouse to box id and double clicks.
@@ -191,7 +192,13 @@ Your available "Next Action" only include:
 - scroll_down: scrolls the screen down, when the desired button is not visible, or you need to see more content.
 - wait: waits for 1 second for the device to load or respond.
 
-Based on the visual information from the screenshot image and the detected bounding boxes, please determine the next action, the Box ID you should operate on (if action is one of 'type', 'hover', 'scroll_up', 'scroll_down', 'wait', there should be no Box ID field), and the value (if the action is 'type') in order to complete the task.
+Step Verification:
+Before deciding your next action, compare the current screenshot with what you expected after your previous action. In your "Reasoning":
+1. State what your previous action was and what you expected to happen.
+2. Confirm whether it succeeded by examining the current screenshot.
+3. If the previous action did NOT produce the expected result, do NOT repeat the same action. Instead, try an alternative approach (different UI element, keyboard shortcut, or different workflow).
+
+Based on the visual information from the screenshot image and the detected bounding boxes, please determine the next action, the Box ID you should operate on (if action is one of 'key', 'type', 'hover', 'scroll_up', 'scroll_down', 'wait', there should be no Box ID field), and the value (if the action is 'type' or 'key') in order to complete the task.
 
 Output format:
 ```json
@@ -207,11 +214,12 @@ IMPORTANT NOTES:
 1. You should only give a single action at a time.
 2. You should give an analysis to the current screen, and reflect on what has been done by looking at the history.
 3. Attach the next action prediction in the "Next Action".
-4. You should not include other actions, such as keyboard shortcuts.
+4. Use keyboard shortcuts when they are the most efficient way to accomplish a step (e.g., Ctrl+S to save, Cmd+Space to open search).
 5. When the task is completed, say "Next Action": "None".
 6. Break tasks into subgoals and complete each one by one.
 7. Avoid choosing the same action/elements multiple times in a row.
 8. If prompted with login/captcha, say "Next Action": "None".
+9. Never give up on a task. If one approach does not work, try an alternative method (e.g., keyboard shortcuts, right-click menus, application menus, or opening a terminal).
 """
         return main_section
 
